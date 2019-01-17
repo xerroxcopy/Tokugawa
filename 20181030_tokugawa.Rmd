@@ -1,0 +1,259 @@
+---
+title: "Tokugawa in R"
+output: html_notebook
+---
+
+
+# motivation
+
+# data
+誰でも閲覧でき，登録すれば編集できるデータセット
+
+`https://docs.google.com/spreadsheets/d/1ZzIZ3qGpURU6JYSZfR2cJec9RuhrCFaex131i5kXxPo/edit?usp=sharing`閲覧のみ
+
+## data source
+
+### 寛文印知
+
+wikiに[寛文印知](https://ja.wikipedia.org/wiki/%E5%AF%9B%E6%96%87%E5%8D%B0%E7%9F%A5)というとてもよい表があるので，[wiki table to csv converter](http://wikitable2csv.ggor.de/)をつかってCSVにし，それを簡単に整形してコピペしている
+
+#### category
+
+大名がどれくらいの石高を占めていたか
+[永高](https://kotobank.jp/word/%E6%B0%B8%E9%AB%98-35946)という単位があるのね
+
+
+# Libraries
+```{r}
+library(sf)
+# library(rgdal)
+library(tidyverse)
+library(ggthemes)
+library(extrafont)
+library(ggrepel)
+library(Cairo)
+library(mapview)
+library(ggbeeswarm)
+library(ggspatial) # for cute north arrow and scale
+```
+
+# data
+
+[sfパッケージについて](https://notchained.hatenablog.com/entry/2017/01/06/213333)
+
+```{r}
+tempfile(fileext = ".zip") %>% 
+  unzip()
+# df <- st_read(dsn = "data/jp_toku_dmyo_pgn") obsolete
+# https://notchained.hatenablog.com/entry/2017/09/13/102358
+
+# data is from 
+df <- read_sf(dsn = "data/jp_toku_dmyo_pgn/", 
+              options = "ENCODING=UTF-8") # できた！
+df2 <- read_sf(dsn = "data/jp_toku_dmyo_pts/", 
+               options = "ENCODING=UTF-8")  # 何に使うのかわからん
+df_kuni <- read_sf(dsn = "data/jp_toku_kuni_pgn/", 
+                   options = "ENCODING=UTF-8")
+df_doo <- read_sf(dsn = "data/jp_toku_doo_pgn/", 
+                  options = "ENCODING=UTF-8")
+plot(df_kuni)
+View(df_kuni)
+plot(df2)
+
+df <- df %>% 
+  rename(daimyo_id = DMYO_CODE, 
+         cnt_daimyo_c = CNT_DMYO_C,
+         area = ACRES,
+         daimyo = DMYO_KJ,
+         daimyo_kana = DMYO_KANA,
+         daimyo_yomi = DMYO_RMJI,
+         is_tozama = DMYO_TYPE,
+         kokudaka = DMYO_SALAR,
+         domain = SEAT_KJ, #　藩はdomainというらしい
+         domain_kana =SEAT_KANA,
+         domain_yomi = SEAT_RMJI,
+         point_id = POINT_ID,
+         heisei_name_yomi = PRESENT_RO, 
+         heisei_name = PRESENT_KA,
+         is_centroid = XY_TYPE,
+         x = X_COORD,
+         y = Y_COORD
+  ) %>% 
+  mutate(is_tozama = is_tozama - 1, 
+         kokudaka_per_acre = kokudaka / area)
+```
+
+保存しておこう
+
+```{r}
+# export as csv, copy paste to google spreadsheet, add some more info
+df %>% 
+  as_tibble() %>% 
+  select(-geometry) 
+write_csv(path = "data/df.csv")
+
+
+```
+
+
+
+# plotいろいろしてみよう
+
+
+いろいろプロット　[参考](https://uribo.hatenablog.com/entry/2018/05/28/075500). [ラベルについて](https://notchained.hatenablog.com/entry/2018/05/28/003910). 
+polygon edge not foundエラーは何度かやるとうまくいくことがある，[geom_sfのissue] (https://github.com/tidyverse/ggplot2/issues/2252).めげずに何度かやってみよう
+
+```{r}
+df_small <- df %>% filter(kokudaka > 11)
+df_small %>% 
+  ggplot() +
+  geom_text(
+    aes(x = x, y = y, 
+        label = daimyo, 
+        # size = area, 
+        # colour = kokudaka
+        # family = if_else(is_tozama == 1, "Meiryo", "Meiryo")
+    ), 
+    family = "HiraKakuPro-W6",
+    NULL
+  ) 
+```
+
+```{r}
+df %>% ggplot() +
+  geom_sf(aes(fill = kokudaka_per_acre), colour = "black", size = 0.1) +
+  scale_size_continuous(range = c(0.3, 3),
+                        trans = "log10") +
+  geom_text(data = df %>% filter(kokudaka > 11), 
+            aes(x = x , y = y, 
+                label = daimyo, 
+                # size = area, 
+                # colour = kokudaka
+                # family = if_else(is_tozama == 1, "Meiryo", "Meiryo")
+            ), 
+            family = "HiraKakuPro-W6",
+            # NULL
+  ) +
+scale_fill_viridis_c(trans = "log10", limits = c(NA, 1)) +
+  scale_colour_viridis_c(option = "A", direction = -1) +
+  theme_tufte(10) + #
+  theme(
+    panel.grid = element_line(colour = "NA"),
+    aspect.ratio = 1,
+    legend.position = c(0.2, 0.8),
+    NULL
+  ) +
+  annotation_scale(location = "bl", width_hint = 0.5) +
+  annotation_north_arrow(which_north = "grid") +
+  coord_sf(crs = 3995)
+annotation_north_arrow(location = "bl", which_north = "true", 
+                       # pad_x = unit(0.75, "in"), pad_y = unit(0.5, "in"),
+                       style = north_arrow_fancy_orienteering)
+```
+
+
+#### coord_sfに関して
+
+package `sf`の[ページ](https://www.r-spatial.org/r/2018/10/25/ggplot2-sf.html)にもある通り，座標系をちゃんとしたもの使わないときれいに`annotation_north_arrow()`や`annotation_scale()`は出ない．特に前者は表示すらされずエラーになる．
+
+`coord_sf(crs = 3995)`などで座標系を上書きできる．`crs`に関しては[座標参照系(Coordinate Reference System:CRS)についてまとめ](https://tm23forest.com/contents/coordinate-reference-system)などを参考に．
+
+
+PDFにしよう．
+```{r}
+pdf.options(encoding='ISOLatin2.enc')
+ggsave(plot, 
+       file = paste0("plot/", Sys.Date(), "_tokugawa_daimyo_kokudaka_per_acre.pdf"),
+       family = "Meiryo", # only accepts names(pdfFonts()) fonts.
+       width = 300, 
+       height = 300, 
+       unit = "mm")
+```
+
+### 石高プロット
+
+```{r}
+
+df %>% 
+  filter(area > .1) %>% 
+  ggplot(aes(x = area, y = kokudaka, label = daimyo, colour = as.factor(is_tozama))) +
+  geom_point() +
+  # geom_text(family = "Meiryo",
+            # position = "jitter")
+  geom_text_repel(family = "Meiryo",
+                  hjust = 0,
+                  size =2,
+                  box.padding = 0,
+                  force = 0.1
+                  # check_overlap = TRUE
+  ) +
+  geom_smooth(se = TRUE
+              ) +
+  scale_colour_manual(values = c("black", "grey50")) +
+  scale_x_continuous(trans = "log10") +
+  scale_y_continuous(trans = "log10") +
+  theme_tufte() +
+  theme(legend.position = "none") 
+```
+
+```{r}
+ggsave( 
+       file = paste0("plot/", Sys.Date(), "_AreaKokudaka.png"),
+       family = "Meiryo", # only accepts names(pdfFonts()) fonts.
+       width = 10, 
+       height =10)
+```
+
+日本語フォントがPDFにできねえなー．しかたないのでPNGにしている．ツイートしやすいし．
+
+
+### mapviewでインタラクティブマップをブラウザでみる
+
+```{r}
+mapview(df, zcol = "kokudaka_per_acre")
+
+```
+
+### 外様大名
+
+```{r}
+
+df %>% ggplot() +
+  geom_sf(aes(fill = is_tozama), colour = "black", size = 0.1) +
+  scale_size_continuous(range = c(0.3, 3), 
+                        trans = "log10") +
+  # geom_text(aes(x, y, 
+  #               label = daimyo, 
+  #               size = area, 
+  #               colour = is_tozama
+  #               # family = if_else(is_tozama == 1, "Meiryo", "Meiryo")
+  # ), 
+  # family = "HiraKakuPro-W6",
+  # NULL
+  # ) +
+  # scale_fill_viridis_c(trans = "log10", limits = c(NA, 1)) +
+  scale_colour_viridis_c(option = "A", direction = -1) +
+  theme_tufte(10) + #
+  theme(
+    panel.grid = element_line(colour = "NA"),
+    aspect.ratio = 1,
+    legend.position = c(0.2, 0.8),
+    NULL
+  ) 
+```
+
+
+# 最終的に
+
+やりたいこと：
+
+- Google Mapsで見られるようにして公開．せめて1662年を
+- Geacronみたいに時系列で動かせるように
+- 今のスーパーの勢力圏とかぶるとかいう説をみてみたい
+- 山岳との関連をみてみたい
+- 表高と実高
+- 耕作可能面積を[国土地理院](http://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-A13.html)の森から逆算して（工業地帯とかも農地と考えたいので）だしてみて，それで豊かさ・貧しさを測る．南部くんが貧しく見えるのはしょうがない気がする
+- 新政府軍についたかどうかを見る．
+- 超どうでもいいけど徳川（特に家康）の遺伝子がどれくらい広がり，薄まったかを図示できたら面白そう！
+- 同様に信長の遺伝子とかも．家光は
+ > 母は浅井長政の娘で織田信長の姪にあたる江。

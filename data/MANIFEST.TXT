@@ -1,0 +1,5 @@
+JAPAN_TOKUGAWA_GIS_README.txt (text/plain) 1291 bytes.
+jp_toku_dmyo_pgn.ZIP (application/zipped-shapefile) 332352 bytes.
+jp_toku_dmyo_pts.ZIP (application/zipped-shapefile) 26576 bytes.
+jp_toku_doo_pgn.ZIP (application/zipped-shapefile) 254083 bytes.
+jp_toku_kuni_pgn.ZIP (application/zipped-shapefile) 174468 bytes.
